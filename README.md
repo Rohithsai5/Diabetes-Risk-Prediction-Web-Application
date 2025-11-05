@@ -1,4 +1,4 @@
-[🚀 **Check Live Demo Here**]()
+[🚀 **Check Live Demo Here**](https://diabetes-risk-prediction-web-application-7fgbhttda2q6e8nzn7hrj.streamlit.app/)
 # Diabetes-Risk-Prediction-Web-Application
 A web application that predicts the risk of diabetes using machine learning. The app leverages an **XGBoost classifier** trained on the **Pima Indians Diabetes Dataset** and provides real-time risk assessment based on user-provided health parameters.
 ---
