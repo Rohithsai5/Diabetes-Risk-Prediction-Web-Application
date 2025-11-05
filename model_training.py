@@ -1,41 +1,115 @@
-import streamlit as st
+# -----------------------
+# Import Libraries
+# -----------------------
+import pandas as pd  
 import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import (
+    classification_report, roc_auc_score, roc_curve,
+    precision_recall_curve, accuracy_score
+)
+from imblearn.over_sampling import SMOTE
+from xgboost import XGBClassifier
+import matplotlib.pyplot as plt
+# -----------------------
+# 1. Load Data
+# -----------------------
+df = pd.read_csv("diabetes.csv")
+X = df.drop("Outcome", axis=1)
+y = df["Outcome"]
+
+# -----------------------
+# 2. Train/Test Split
+# -----------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# -----------------------
+# 3. Apply SMOTE (optional but helps recall)
+# -----------------------
+sm = SMOTE(random_state=42)
+X_train_res, y_train_res = sm.fit_resample(X_train, y_train)
+# -----------------------
+# 4. Train XGBoost with class weight to prioritize diabetic detection
+# -----------------------
+xgb_model = XGBClassifier(
+    scale_pos_weight=np.sum(y_train_res == 0) / np.sum(y_train_res == 1),  # weight to balance classes
+    n_estimators=300,
+    max_depth=3,
+    learning_rate=0.05,
+    min_child_weight=7,
+    gamma=5,
+    subsample=0.8,
+    colsample_bytree=0.6,
+    random_state=42,
+    eval_metric="auc"
+    
+)
+
+xgb_model.fit(X_train_res, y_train_res,
+              eval_set=[(X_test, y_test)],
+              verbose=False)
+
+# -----------------------
+# 5. Predict probabilities and adjust threshold for high recall
+# -----------------------
+y_proba = xgb_model.predict_proba(X_test)[:, 1]
+
+# Shift threshold lower to catch more positives
+threshold = 0.35  # lower than 0.5 to increase recall
+y_pred = (y_proba >= threshold).astype(int)
+
+# -----------------------
+# 6. Evaluation
+# -----------------------
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+print("ROC-AUC:", roc_auc_score(y_test, y_proba))
+print("Accuracy:", accuracy_score(y_test, y_pred))
+
+# -----------------------
+# 7. ROC Curve
+# -----------------------
+fpr, tpr, _ = roc_curve(y_test, y_proba)
+plt.figure(figsize=(6,5))
+plt.plot(fpr, tpr, label=f"ROC curve (area = {roc_auc_score(y_test, y_proba):.2f})")
+plt.plot([0,1], [0,1], "k--")
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve")
+plt.legend(loc="lower right")
+plt.show()
+
+# -----------------------
+# 8. Precision-Recall Curve
+# -----------------------
+prec, rec, _ = precision_recall_curve(y_test, y_proba)
+plt.figure(figsize=(6,5))
+plt.plot(rec, prec, label="PR Curve")
+plt.axvline(x=np.sum(y_pred)/len(y_pred), color='red', linestyle='--', label=f"Threshold={threshold}")
+plt.xlabel("Recall")
+plt.ylabel("Precision")
+plt.title("Precision-Recall Curve")
+plt.legend()
+plt.show()
+
+
+
 import joblib
 
-# Load the trained model
+# Save the trained XGBoost model with .joblib extension
+joblib.dump(xgb_model, "diabetes_xgb_model.joblib")
+print("Model saved as 'diabetes_xgb_model.joblib'")
+
+import joblib
+
+# Load the model
 model = joblib.load("diabetes_xgb_model.joblib")
 
-st.title("Diabetes Risk Prediction")
-st.write("Enter your health details:")
+# Example: predict on new data
+y_pred = model.predict(X_test)
+y_proba = model.predict_proba(X_test)[:, 1]
 
-# Input fields
-pregnancies = st.number_input("Number of Pregnancies", 0, 20, 0)
-glucose = st.number_input("Glucose Level", 0, 300, 120)
-blood_pressure = st.number_input("Blood Pressure (mm Hg)", 0, 200, 70)
-skin_thickness = st.number_input("Skin Thickness (mm)", 0, 100, 20)
-insulin = st.number_input("Insulin Level", 0, 900, 79)
-bmi = st.number_input("BMI", 0.0, 70.0, 25.0)
-dpf = st.number_input("Diabetes Pedigree Function", 0.0, 2.5, 0.5)
-age = st.number_input("Age", 1, 120, 30)
-
-# Predict button
-if st.button("Predict"):
-    input_features = np.array([[pregnancies, glucose, blood_pressure,
-                                skin_thickness, insulin, bmi, dpf, age]])
-    
-    prediction = model.predict(input_features)[0]
-    prediction_proba = model.predict_proba(input_features)[0][1]
-
-    risk_level = "High Risk" if prediction == 1 else "Low Risk"
-    probability_percent = prediction_proba * 100
-
-    st.write("---")
-    st.write(f"Predicted Class: {prediction} ({risk_level})")
-    st.write(f"Probability of Diabetes: {probability_percent:.2f}%")
-    
-    if prediction == 1:
-        st.error(f"⚠ High Risk! You might have diabetes.")
-        st.info("Recommendation: Consult a doctor for proper diagnosis and lifestyle guidance.")
-    else:
-        st.success(f"✅ Low Risk! Probability of diabetes is low.")
-        st.info("Recommendation: Maintain a healthy lifestyle and monitor regularly.")
+print(y_pred)
